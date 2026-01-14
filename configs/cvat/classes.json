@@ -1,0 +1,44 @@
+[
+  {
+    "name": "fat",
+    "id": 59,
+    "color": "#fafa37",
+    "type": "polygon",
+    "attributes": []
+  },
+  {
+    "name": "tendon",
+    "id": 60,
+    "color": "#fa7dbb",
+    "type": "polygon",
+    "attributes": []
+  },
+  {
+    "name": "muscle",
+    "id": 61,
+    "color": "#ff0000",
+    "type": "polygon",
+    "attributes": []
+  },
+  {
+    "name": "femur",
+    "id": 62,
+    "color": "#cccfd2",
+    "type": "any",
+    "attributes": []
+  },
+  {
+    "name": "artery",
+    "id": 66,
+    "color": "#2a7dd1",
+    "type": "polygon",
+    "attributes": []
+  },
+  {
+    "name": "bakers_cyst",
+    "id": 67,
+    "color": "#aaf0d1",
+    "type": "any",
+    "attributes": []
+  }
+]

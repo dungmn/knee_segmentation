@@ -1,0 +1,7 @@
+opencv-python
+pycocotools
+rich
+monai
+scikit-learn
+matplotlib
+pandas
