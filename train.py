@@ -9,6 +9,7 @@ from rich.progress import track
 from rich import print
 
 from src.data.dataset import KneeSegDataset
+from src.data.augmentations import get_train_transforms, get_val_transforms
 from src.models.model import build_deeplabv3
 
 
@@ -27,9 +28,9 @@ def load_dataset(dataset_dir, seed):
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     seed = 16
-    model_name = "deeplabv3_resnet50"
-    # model_name = "deeplabv3_resnet101"
-    experiment_dir = f"experiments/{time.strftime('%Y%m%d-%H%M%S')}/{model_name}_seed_{seed}"
+    # model_name = "deeplabv3_resnet50"
+    model_name = "deeplabv3_resnet101"
+    experiment_dir = f"experiments/{time.strftime('%Y%m%d-%H%M%S')}/{model_name}-seed_{seed}"
     saved_weights_path = f"{experiment_dir}/best_model.pth"
 
     os.makedirs(experiment_dir, exist_ok=True)
@@ -54,15 +55,18 @@ if __name__ == "__main__":
     # # Model
     num_classes = 7
     batch_size = 8
-    epochs = 50
+    epochs = 200
     model = build_deeplabv3(num_classes, model_name=model_name).to(device)
     model.train()
     criterion = DiceCELoss(to_onehot_y=True, softmax=True)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     dice_metric = DiceMetric(include_background=False, reduction="mean")
 
-    train_loader = DataLoader(KneeSegDataset(train_imgs, train_masks), batch_size=batch_size, shuffle=True)
-    val_loader   = DataLoader(KneeSegDataset(val_imgs, val_masks), batch_size=batch_size, shuffle=False)
+    train_transform = get_train_transforms(img_size=512)
+    val_transform = get_val_transforms(img_size=512)
+
+    train_loader = DataLoader(KneeSegDataset(train_imgs, train_masks, transform=train_transform), batch_size=batch_size, shuffle=True)
+    val_loader   = DataLoader(KneeSegDataset(val_imgs, val_masks, transform=val_transform), batch_size=batch_size, shuffle=False)
 
     # # Train Loop
     best_dice = 0

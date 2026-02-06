@@ -1,7 +1,9 @@
+import argparse
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from src.data.dataset import KneeSegDataset
+from src.data.augmentations import get_val_transforms
 from src.models.model import build_deeplabv3
 import pandas as pd
 from rich import print
@@ -50,42 +52,55 @@ def load_test_data(dataset_dir, seed):
 
 
 if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dataset_dir = [
+    parser = argparse.ArgumentParser(description="Evaluate segmentation model")
+    parser.add_argument("--weights", type=str, default=f"experiments/20260129-162624/deeplabv3_resnet50_seed_16/best_model.pth")
+    parser.add_argument("--dataset-dir", nargs="+", default=[
         "data/processed/training/post_trans-27-random-flipped-batch_000",
         "data/processed/training/post_trans-baker_cyst-flipped-batch_000"
-    ]
+    ])
+    parser.add_argument("--seed", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--num-classes", type=int, default=7)
+    args = parser.parse_args()
 
-    seed = 16
-    model_name = "deeplabv3_resnet50"
-    # model_name = "deeplabv3_resnet101"
-
-    weights_path = f"experiments/20260105-164514/deeplabv3_resnet50_seed_16/best_model.pth"
-
-    model = load_model(weights_path, model_name, num_classes=7, device=device)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # get model name from weights path
+    model_name = args.weights.split("/")[-2].split("-seed")[0]
+    model = load_model(args.weights, model_name, num_classes=args.num_classes, device=device)
 
     test_imgs, test_masks = [], []
-    for d in dataset_dir:
-        t_imgs, t_masks = load_test_data(d, seed)
+    for d in args.dataset_dir:
+        t_imgs, t_masks = load_test_data(d, args.seed)
         test_imgs.extend(t_imgs)
         test_masks.extend(t_masks)
 
+    print(f"Found {len(test_imgs)} test images from {len(args.dataset_dir)} dataset(s)")
 
-    test_loader  = DataLoader(KneeSegDataset(test_imgs, test_masks), batch_size=8, shuffle=False)
+    val_transform = get_val_transforms(img_size=512)
+    test_loader  = DataLoader(KneeSegDataset(test_imgs, test_masks, transform=val_transform), batch_size=args.batch_size, shuffle=False)
 
     stats = init_stats()
 
     with torch.no_grad():
         for images, gt_masks in track(test_loader, description="Evaluating"):
             images = images.to(device)
-            gt_masks = gt_masks.cpu().numpy()      # (B, H, W)
 
-            outputs = model(images)["out"]         # (B, 7, H, W)
+            # gt_masks may be a torch tensor (B, H, W) or (B, 1, H, W) depending on transforms
+            if isinstance(gt_masks, torch.Tensor):
+                gt_np = gt_masks.cpu().numpy()
+            else:
+                gt_np = np.array(gt_masks)
+
+            # If mask has channel dim (B,1,H,W) squeeze to (B,H,W)
+            if gt_np.ndim == 4 and gt_np.shape[1] == 1:
+                gt_np = gt_np.squeeze(1)
+
+            outputs = model(images)["out"]         # (B, C, H, W)
             preds = torch.argmax(outputs, dim=1)   # (B, H, W)
             preds = preds.cpu().numpy()
 
             for i in range(preds.shape[0]):
-                update_stats(stats, preds[i], gt_masks[i])
+                update_stats(stats, preds[i], gt_np[i])
 
     print("\n=== Segmentation Results (6 classes) ===")
 

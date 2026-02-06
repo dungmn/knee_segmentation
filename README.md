@@ -21,3 +21,7 @@ python train.py
 # Run the evaluation script
 python eval.py
 ```
+
+
+## References
+[text](https://www.kaggle.com/datasets/ignaciorlando/ussimandsegm)

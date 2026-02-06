@@ -23,7 +23,7 @@ if __name__ == "__main__":
 
     #MODEL CONFIG
     model_name = "deeplabv3_resnet101"
-    weights_path = f"experiments/20260105-152106/deeplabv3_resnet101_seed_16/best_model.pth"
+    weights_path = f"experiments/20260204-161934/deeplabv3_resnet101-seed_16/best_model.pth"
 
     output_dir = f"tests/{model_name}_{seed}_results"
     os.makedirs(output_dir, exist_ok=True)

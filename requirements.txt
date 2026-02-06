@@ -5,3 +5,4 @@ monai
 scikit-learn
 matplotlib
 pandas
+albumentations
