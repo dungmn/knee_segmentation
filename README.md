@@ -22,6 +22,13 @@ python train.py
 python eval.py
 ```
 
-
+## Dataset
+* E03SUBJECTID: subject id
+* E03GENDER: gender 1-male 2-female
+* E03PASKR: pain in Right - Knee 0,1,2,3,888
+* E03PASKL: pain in Left - Knee, 0,1,2,3,888
+* E03RADRPAKKL: Kellgren-Lawrence (KL) Grade read from right PA knee radiograph
+* E03RADLPAKKL: Kellgren-Lawrence (KL) Grade read from left PA knee radiograph
+* E03AGE: age 
 ## References
 [text](https://www.kaggle.com/datasets/ignaciorlando/ussimandsegm)
