@@ -65,7 +65,10 @@ if __name__ == "__main__":
     train_transform = get_train_transforms(img_size=512)
     val_transform = get_val_transforms(img_size=512)
 
-    train_loader = DataLoader(KneeSegDataset(train_imgs, train_masks, transform=train_transform), batch_size=batch_size, shuffle=True)
+    # train_loader = DataLoader(KneeSegDataset(train_imgs, train_masks, transform=train_transform), batch_size=batch_size, shuffle=True)
+    # val_loader   = DataLoader(KneeSegDataset(val_imgs, val_masks, transform=val_transform), batch_size=batch_size, shuffle=False)
+
+    train_loader = DataLoader(KneeSegDataset(train_imgs, train_masks, transform=val_transform), batch_size=batch_size, shuffle=True)
     val_loader   = DataLoader(KneeSegDataset(val_imgs, val_masks, transform=val_transform), batch_size=batch_size, shuffle=False)
 
     # # Train Loop

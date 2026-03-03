@@ -11,7 +11,8 @@ def predict_image(img_path):
     img = cv2.imread(img_path)
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img_resized = cv2.resize(img_rgb, (512, 512))
-    tensor = torch.from_numpy(img_resized.astype("float32")/255.0).permute(2,0,1).unsqueeze(0).to(device)
+    img_normed = (img_resized.astype("float32") / 255.0 - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
+    tensor = torch.from_numpy(img_normed.astype("float32")).permute(2,0,1).unsqueeze(0).to(device)
     with torch.no_grad():
         pred = model(tensor)["out"].argmax(1).squeeze().cpu().numpy()
     return img_resized, pred
@@ -23,7 +24,7 @@ if __name__ == "__main__":
 
     #MODEL CONFIG
     model_name = "deeplabv3_resnet101"
-    weights_path = f"experiments/20260204-161934/deeplabv3_resnet101-seed_16/best_model.pth"
+    weights_path = f"experiments/20260227-172930/deeplabv3_resnet101-seed_16/best_model.pth"
 
     output_dir = f"tests/{model_name}_{seed}_results"
     os.makedirs(output_dir, exist_ok=True)

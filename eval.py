@@ -78,6 +78,8 @@ if __name__ == "__main__":
 
     val_transform = get_val_transforms(img_size=512)
     test_loader  = DataLoader(KneeSegDataset(test_imgs, test_masks, transform=val_transform), batch_size=args.batch_size, shuffle=False)
+    # test_loader  = DataLoader(KneeSegDataset(test_imgs, test_masks, transform=None), batch_size=args.batch_size, shuffle=False)
+
 
     stats = init_stats()
 
