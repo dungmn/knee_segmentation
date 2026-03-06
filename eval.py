@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader
 from src.data.dataset import KneeSegDataset
 from src.data.augmentations import get_val_transforms
 from src.models.model import build_deeplabv3
+from src.models.unet import build_unet
 import pandas as pd
 from rich import print
 from rich.progress import track
@@ -35,7 +36,10 @@ def update_stats(stats, pred, gt):
         stats[c]["FN"] += np.logical_and(~pred_c, gt_c).sum()
 
 def load_model(weights_path, model_name, num_classes, device):
-    model = build_deeplabv3(num_classes, model_name=model_name).to(device)
+    if model_name.startswith("deeplabv3"):
+        model = build_deeplabv3(num_classes, model_name=model_name).to(device)
+    else:
+        model = build_unet(num_classes=num_classes).to(device)
     model.load_state_dict(torch.load(weights_path, map_location=device))
     model.eval()
     return model
@@ -66,6 +70,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # get model name from weights path
     model_name = args.weights.split("/")[-2].split("-seed")[0]
+    print(f"Loading model '{model_name}' from {args.weights}...")
     model = load_model(args.weights, model_name, num_classes=args.num_classes, device=device)
 
     test_imgs, test_masks = [], []
@@ -97,7 +102,7 @@ if __name__ == "__main__":
             if gt_np.ndim == 4 and gt_np.shape[1] == 1:
                 gt_np = gt_np.squeeze(1)
 
-            outputs = model(images)["out"]         # (B, C, H, W)
+            outputs = model(images)        # (B, C, H, W)
             preds = torch.argmax(outputs, dim=1)   # (B, H, W)
             preds = preds.cpu().numpy()
 

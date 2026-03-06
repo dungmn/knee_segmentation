@@ -174,3 +174,4 @@ data/
 experiments/
 weights/
 tests/
+logs/
