@@ -15,7 +15,7 @@ def segment_baker_cyst(
     area_max=25000,
     aspect_ratio_min=1.2,
     aspect_ratio_max=4.0,
-    solidity_min=0.8,
+    solidity_min=0.75,
     extent_min=0.45,
     circularity_min=0.2,
     bottom_exclusion_margin=3,
@@ -47,8 +47,8 @@ def segment_baker_cyst(
 
     # 3. Denoising
     # Use Bilateral Filter to blur noise while preserving sharp edges of fluid collections
-    blurred = cv2.bilateralFilter(img_roi, d=9, sigmaColor=75, sigmaSpace=75)
-
+    # blurred = cv2.bilateralFilter(img, d=9, sigmaColor=75, sigmaSpace=75)
+    blurred = img
     if debug:
         cv2.imwrite("logs/2blurred.png", blurred)
 
@@ -122,6 +122,7 @@ def segment_baker_cyst(
         solidity = area / hull_area
         extent = area / float(w_box * h_box)
         circularity = (4.0 * np.pi * area) / (perimeter * perimeter)
+        
 
         if debug:
             print(
@@ -156,7 +157,7 @@ def segment_baker_cyst(
     return final_mask, cyst_found
 
 if __name__ == "__main__":
-    image_dir = "data/processed/training/post_trans-baker_cyst-flipped-batch_000/images"
+    image_dir = "data/processed/annotations/post_trans-baker_cyst/batch_000"
     output_dir = "logs/output"
     debug_mode = False  # Set to True for intermediate image outputs
     os.makedirs(output_dir, exist_ok=True)
@@ -165,7 +166,7 @@ if __name__ == "__main__":
     # Uncomment the line below to process only a single test image
     output_dir = "logs"
     debug_mode = True
-    image_paths = ["data/processed/training/post_trans-baker_cyst-flipped-batch_000/images/72bb1eb6-f020-11ed-b527-0a580a5f736a_17.png"]
+    image_paths = ["data/processed/annotations/post_trans-baker_cyst/batch_000/72bb4d70-f020-11ed-b527-0a580a5f736a_27.png"]
     
     for img_path in image_paths:
         basename = os.path.basename(img_path)
