@@ -278,14 +278,27 @@ if __name__ == "__main__":
         # Blend overlay with original to highlight cyst
         highlighted = cv2.addWeighted(original_color, 0.7, overlay, 0.3, 0)
 
+   
+
+        # Combine original, highlighted, and mask visualization horizontally
+        # Ensure `morph_img` is 3-channel and same size as original for np.hstack
+        morph_vis = morph_img
+        if morph_vis is None:
+            morph_vis = np.zeros_like(original_color)
+        elif morph_vis.ndim == 2:
+            morph_vis = cv2.cvtColor(morph_vis, cv2.COLOR_GRAY2BGR)
+
+        if morph_vis.shape[:2] != original_color.shape[:2]:
+            morph_vis = cv2.resize(morph_vis, (original_color.shape[1], original_color.shape[0]))
+
+
         # Create a colored mask visualization (green area) for standalone mask view
-        mask_color = np.zeros_like(original_color)
+        mask_color = morph_vis.copy()
         mask_color[mask_bool] = (0, 255, 0)
         # text the max_score on the mask_color image
         cv2.putText(mask_color, f"Area: {max_score:.0f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-        # Combine original, highlighted, and mask visualization horizontally
-        combined_highlight = np.hstack((original_color, highlighted, morph_img))
+        combined_highlight = np.hstack((original_color, highlighted, mask_color))
 
         # Save the additional highlighted image
         out_path = os.path.join(output_dir, basename)
