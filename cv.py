@@ -1,9 +1,78 @@
 import glob
 import os
+import argparse
+import sys
 
 import cv2
 import numpy as np
 import math
+
+# ==== Configuration Constants ====
+BILATERAL_FILTER_CONFIG = {
+    "d": 9,
+    "sigmaColor": 75,
+    "sigmaSpace": 75,
+}
+
+BILATERAL_FILTER_CONFIG = {
+    "d": 11,
+    "sigmaColor": 100,
+    "sigmaSpace": 100,
+}
+
+MORPH_KERNEL_SIZE = (7, 7)
+MORPH_KERNEL_ITERATIONS = 2
+
+# ==== Helper Functions ====
+def get_centroid(cnt):
+    """Extract centroid from contour with fallback to bounding box center.
+    
+    Args:
+        cnt: OpenCV contour
+        
+    Returns:
+        Tuple (cx, cy) representing contour centroid
+    """
+    M = cv2.moments(cnt)
+    if M.get("m00", 0) != 0:
+        cx = M["m10"] / M["m00"]
+        cy = M["m01"] / M["m00"]
+        return cx, cy
+    else:
+        x, y, w, h = cv2.boundingRect(cnt)
+        return x + w / 2.0, y + h / 2.0
+
+
+def create_comparison_visualization(original_color, highlighted, mask, max_score):
+    """Create a 3-panel comparison visualization.
+    
+    Args:
+        original_color: Original image in BGR format
+        highlighted: Highlighted overlay image
+        mask: Binary mask of detected region
+        max_score: Area score to display
+        
+    Returns:
+        Combined visualization as numpy array
+    """
+    mask_bool = mask == 255
+    
+    # Create colored mask visualization (green area)
+    mask_color = original_color.copy()
+    mask_color[mask_bool] = (0, 255, 0)
+    
+    # Add area text annotation
+    cv2.putText(
+        mask_color,
+        f"Area: {max_score:.0f}",
+        (10, 30),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.8,
+        (255, 255, 255),
+        2,
+    )
+    
+    return np.hstack((original_color, highlighted, mask_color))
 
 def segment_baker_cyst(
     image_path,
@@ -50,13 +119,10 @@ def segment_baker_cyst(
     if debug:
         cv2.imwrite("logs/1roi_applied.png", img_roi)  # Save image after ROI for verification
 
-    # combined = np.hstack((img, img_roi))
-    # cv2.imwrite(os.path.join(output_dir, "viz_roi.png"), combined)
-
     # 3. Denoising
     # Use Bilateral Filter to blur noise while preserving sharp edges of fluid collections
-    blurred = cv2.bilateralFilter(img, d=9, sigmaColor=75, sigmaSpace=75)
-    # blurred = img
+    blurred = cv2.bilateralFilter(img, **BILATERAL_FILTER_CONFIG)
+    # blurred = cv2.GaussianBlur(blurred, (5, 5), 0)
     if debug:
         cv2.imwrite("logs/2blurred.png", blurred)
 
@@ -66,7 +132,14 @@ def segment_baker_cyst(
     # 4. Thresholding
     # Baker's cyst appears extremely dark (pixel values near 0).
     # Set threshold value: pixels darker than threshold become white (255), brighter become black (0)
-    _, thresh = cv2.threshold(blurred, threshold_value, 255, cv2.THRESH_BINARY_INV)
+    # _, thresh = cv2.threshold(blurred, threshold_value, 255, cv2.THRESH_BINARY_INV)
+
+    t, _ = cv2.threshold(
+        blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+    )
+
+    t = t - 30 
+    _, thresh = cv2.threshold(blurred, t, 255, cv2.THRESH_BINARY_INV)
 
     # Remove black background outside ultrasound region mistakenly identified as cyst due to THRESH_BINARY_INV
     thresh = cv2.bitwise_and(thresh, thresh, mask=roi_mask)
@@ -77,19 +150,15 @@ def segment_baker_cyst(
 
 
     # 5. Morphological Operations
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, MORPH_KERNEL_SIZE)
     
     # Opening: Remove small white noise (blood vessels, shadow artifacts)
-    morph = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
+    morph = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=MORPH_KERNEL_ITERATIONS)
     # Closing: Fill black holes inside white cyst regions (if any cloudiness)
-    morph = cv2.morphologyEx(morph, cv2.MORPH_CLOSE, kernel, iterations=2)
+    morph = cv2.morphologyEx(morph, cv2.MORPH_CLOSE, kernel, iterations=MORPH_KERNEL_ITERATIONS)
 
     if debug:
         cv2.imwrite("logs/4morphological.png", morph)
-
-    # # write the demo image
-    # combined = np.hstack((thresh, morph))
-    # cv2.imwrite(os.path.join(output_dir, "viz_morph.png"), combined)
 
     # 6. Find and Filter Contours
     contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -150,15 +219,7 @@ def segment_baker_cyst(
             and circularity >= circularity_min
         ):
             # Compute centering score: prefer contours nearer to image center
-            # Use contour centroid if possible
-            M = cv2.moments(cnt)
-            if M.get("m00", 0) != 0:
-                cx = M["m10"] / M["m00"]
-                cy = M["m01"] / M["m00"]
-            else:
-                # fallback to bounding box center
-                cx = x_box + w_box / 2.0
-                cy = y_box + h_box / 2.0
+            cx, cy = get_centroid(cnt)
 
             # Use ROI center as reference for centering preference (not full image center)
             roi_cx = (roi_left + roi_right) / 2.0
@@ -179,9 +240,13 @@ def segment_baker_cyst(
 
             if debug:
                 print(
-                f"Contour area: {area}, Aspect Ratio: {aspect_ratio:.2f}, "
-                f"Solidity: {solidity:.2f}, Extent: {extent:.2f}, Circularity: {circularity:.2f}"
-                ,f"Distance score (ROI center): {distance_score:.3f} (dist={dist:.1f}, max_dist={max_dist:.1f}, cx={cx:.1f}, cy={cy:.1f})")
+                    f"Contour metrics: Area={area}, AR={aspect_ratio:.2f}, "
+                    f"Solidity={solidity:.2f}, Extent={extent:.2f}, Circ={circularity:.2f}"
+                )
+                print(
+                    f"Distance score: {distance_score:.3f} (dist={dist:.1f}, max_dist={max_dist:.1f}), "
+                    f"Centroid: ({cx:.1f}, {cy:.1f})"
+                )
 
             # Normalize area into [0,1] based on area_min/area_max bounds
             area_score = (area - area_min) / float(max(1, area_max - area_min))
@@ -197,24 +262,14 @@ def segment_baker_cyst(
 
             # Select contour by combined score; keep max_score as area for downstream display
             if combined_score > best_score:
-                # If there is an existing best contour, check deterministic upper-half preference
-                should_select = True
-                if best_cnt is not None:
-                    # compute best_cnt centroid
-                    M_best = cv2.moments(best_cnt)
-                    if M_best.get("m00", 0) != 0:
-                        best_cy = M_best["m01"] / M_best["m00"]
-                    else:
-                        bx, by, bw, bh = cv2.boundingRect(best_cnt)
-                        best_cy = by + bh / 2.0
-
-                    # If current contour is in upper half and best is in lower half, prefer current regardless of score
-                    if (cy < (h / 2.0)) and (best_cy >= (h / 2.0)):
-                        should_select = True
-
-                if should_select:
-                    best_score = combined_score
-                    max_score = area
+                # New best contour found by score
+                best_score = combined_score
+                max_score = area
+                best_cnt = cnt
+            elif best_cnt is not None and combined_score == best_score:
+                # Tiebreaker: prefer upper-half contour when scores are equal
+                _, best_cy = get_centroid(best_cnt)
+                if cy < (h / 2.0) and best_cy >= (h / 2.0):
                     best_cnt = cnt
 
     # 7. Draw Output Mask
@@ -228,87 +283,98 @@ def segment_baker_cyst(
         if debug:
             print("No Baker's cyst found meeting criteria.")
 
-    return final_mask, cyst_found, max_score, morph
+    return final_mask, cyst_found, max_score, morph, img
 
 if __name__ == "__main__":
-    import sys
-    name_arg = sys.argv[1] if len(sys.argv) > 1 else None
-    image_dir = "data/processed/annotations/post_trans-baker_cyst/batch_000"
-    output_dir = "logs/output"
-    debug_mode = False  # Set to True for intermediate image outputs
-    os.makedirs(output_dir, exist_ok=True)
-    image_paths = glob.glob(os.path.join(image_dir, "*.png"))
+    parser = argparse.ArgumentParser(
+        description="Detect Baker's cyst in ultrasound images using classical CV"
+    )
+    parser.add_argument(
+        "image",
+        nargs="?",
+        default=None,
+        help="Specific image filename to process (without path). If not provided, processes all images.",
+    )
+    parser.add_argument(
+        "--debug", default=True, action="store_true", help="Enable debug mode with intermediate outputs and logs"
+    )
+    parser.add_argument(
+        "--input-dir",
+        default="data/processed/annotations/post_trans-baker_cyst/batch_000",
+        help="Input directory containing images",
+    )
+    parser.add_argument(
+        "--output-dir", default="logs/output", help="Output directory for results"
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="Print detailed processing information"
+    )
     
-    # Uncomment the line below to process only a single test image
-    if name_arg:
-        output_dir = "logs"
-        debug_mode = True
-        image_paths = [f"data/processed/annotations/post_trans-baker_cyst/batch_000/{name_arg}.png"]
-
-    cnt = 0
+    args = parser.parse_args()
+    
+    # Create output directories
+    os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Determine image paths to process
+    if args.image:
+        # Process single specified image
+        image_paths = [os.path.join(args.input_dir, f"{args.image}.png")]
+        output_dir = "logs"  # Use logs for single image debug
+    else:
+        # Process all images in directory
+        image_paths = sorted(glob.glob(os.path.join(args.input_dir, "*.png")))
+        output_dir = args.output_dir
+    
+    # Process images
+    cysts_found = 0
     for img_path in image_paths:
-        basename = os.path.basename(img_path)
-        print(f"Processing {img_path}...")
-        mask, cyst_found, max_score, morph_img = segment_baker_cyst(img_path, debug=debug_mode)
+        if args.verbose:
+            print(f"Processing {img_path}...")
+        
+        # Run segmentation
+        mask, cyst_found, max_score, morph_img, original = segment_baker_cyst(
+            img_path, debug=args.debug
+        )
+        
         if cyst_found:
-            cnt += 1
-        original = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-    
-        # # visualize results, left is the original image, right is the segmentation mask
-        # combined = np.hstack((original, mask))
-        # cv2.imwrite(os.path.join(output_dir, f"{basename}"), combined)
-
-        # Also create a color-highlighted overlay (do not replace the existing saved image)
+            cysts_found += 1
+        
+        # Create visualization
         if original is None:
-            print(f"  Failed to read original image {img_path}")
-            print(f"  Cyst found: {cyst_found}")
+            print(f"  ❌ Failed to read image: {img_path}")
             continue
-
-        # Convert grayscale original to BGR for color visualization
+        
+        # Ensure mask matches original dimensions
+        if mask.shape != original.shape:
+            mask = cv2.resize(
+                mask, (original.shape[1], original.shape[0]), interpolation=cv2.INTER_NEAREST
+            )
+        
+        # Convert grayscale to BGR for color visualization
         original_color = cv2.cvtColor(original, cv2.COLOR_GRAY2BGR)
-
-        # Ensure mask is single-channel and same shape
-        mask_resized = mask
-        if mask_resized.shape != original.shape:
-            mask_resized = cv2.resize(mask_resized, (original.shape[1], original.shape[0]))
-
-
-        mask_bool = mask_resized == 255
-
-        # Create an overlay: red for cyst area
+        
+        # Create highlighted overlay
         overlay = original_color.copy()
-        overlay[mask_bool] = (0, 0, 255)  # BGR red
-
-        # Blend overlay with original to highlight cyst
+        overlay[mask == 255] = (0, 0, 255)  # BGR red
         highlighted = cv2.addWeighted(original_color, 0.7, overlay, 0.3, 0)
-
-   
-
-        # Combine original, highlighted, and mask visualization horizontally
-        # Ensure `morph_img` is 3-channel and same size as original for np.hstack
-        morph_vis = morph_img
-        if morph_vis is None:
-            morph_vis = np.zeros_like(original_color)
-        elif morph_vis.ndim == 2:
-            morph_vis = cv2.cvtColor(morph_vis, cv2.COLOR_GRAY2BGR)
-
-        if morph_vis.shape[:2] != original_color.shape[:2]:
-            morph_vis = cv2.resize(morph_vis, (original_color.shape[1], original_color.shape[0]))
-
-
-        # Create a colored mask visualization (green area) for standalone mask view
-        mask_color = morph_vis.copy()
-        mask_color[mask_bool] = (0, 255, 0)
-        # text the max_score on the mask_color image
-        cv2.putText(mask_color, f"Area: {max_score:.0f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-
-        combined_highlight = np.hstack((original_color, highlighted, mask_color))
-
-        # Save the additional highlighted image
-        out_path = os.path.join(output_dir, basename)
-        cv2.imwrite(out_path, combined_highlight)
-
-        print(f"  Saved highlighted output to: {out_path}")
-        print(f"  Cyst found: {cyst_found}")
-
-    print(f"Total cysts found: {cnt}/{len(image_paths)}")
+        
+        # Create comparison visualization
+        combined = create_comparison_visualization(
+            original_color, highlighted, mask, max_score
+        )
+        
+        # Save result
+        basename = os.path.basename(img_path)
+        output_path = os.path.join(output_dir, basename)
+        cv2.imwrite(output_path, combined)
+        
+        if args.verbose:
+            status = "✓ Found" if cyst_found else "✗ Not found"
+            print(f"  {status} | Saved to: {output_path}")
+    
+    # Summary
+    total = len(image_paths)
+    print(f"\n{'='*50}")
+    print(f"Cysts found: {cysts_found}/{total}")
+    print(f"Results saved to: {output_dir}")
+    print(f"{'='*50}")

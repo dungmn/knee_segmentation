@@ -179,7 +179,7 @@ def evaluate_cv(args, test_imgs, test_masks):
         if gt_mask is None:
             raise ValueError(f"Failed to load ground-truth mask: {mask_path}")
 
-        pred_mask, _, _, _ = segment_baker_cyst(img_path, debug=args.cv_debug)
+        pred_mask, _, _, _, _ = segment_baker_cyst(img_path, debug=args.cv_debug)
 
         if pred_mask.shape != gt_mask.shape:
             pred_mask = cv2.resize(pred_mask, (gt_mask.shape[1], gt_mask.shape[0]), interpolation=cv2.INTER_NEAREST)
@@ -255,7 +255,7 @@ if __name__ == "__main__":
 
     test_imgs, test_masks = [], []
     for d in args.dataset_dir:
-        t_imgs, t_masks = load_test_data(d, args.seed, file_name="all.txt")
+        t_imgs, t_masks = load_test_data(d, args.seed, file_name="test.txt")
         test_imgs.extend(t_imgs)
         test_masks.extend(t_masks)
 
@@ -275,7 +275,7 @@ if __name__ == "__main__":
         if gt_mask is None:
             raise ValueError(f"Failed to load ground-truth mask: {mask_path}")
 
-        pred_mask, _, _, _ = segment_baker_cyst(img_path, debug=args.cv_debug)
+        pred_mask, _, _, _, _ = segment_baker_cyst(img_path, debug=args.cv_debug)
 
         if pred_mask.shape != gt_mask.shape:
             pred_mask = cv2.resize(pred_mask, (gt_mask.shape[1], gt_mask.shape[0]), interpolation=cv2.INTER_NEAREST)
