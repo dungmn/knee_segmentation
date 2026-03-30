@@ -30,8 +30,8 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     seed = 16
     # model_name = "deeplabv3_resnet50"
-    # model_name = "deeplabv3_resnet101"
-    model_name = "Unet"
+    model_name = "deeplabv3_resnet101"
+    # model_name = "Unet"
 
     experiment_dir = f"experiments/{time.strftime('%Y%m%d-%H%M%S')}/{model_name}-seed_{seed}"
     saved_weights_path = f"{experiment_dir}/best_model.pth"
@@ -59,8 +59,12 @@ if __name__ == "__main__":
     num_classes = 7
     batch_size = 6
     epochs = 50
-    # model = build_deeplabv3(num_classes, model_name=model_name).to(device)
-    model = build_unet(num_classes=num_classes).to(device)
+    if model_name.startswith("deeplabv3"):
+        model = build_deeplabv3(num_classes, model_name=model_name).to(device)
+    elif model_name == "Unet":
+        model = build_unet(num_classes=num_classes).to(device)
+    else:
+        raise ValueError(f"Unsupported model name: {model_name}")
     model.train()
     criterion = DiceCELoss(to_onehot_y=True, softmax=True)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
@@ -69,10 +73,10 @@ if __name__ == "__main__":
     train_transform = get_train_transforms(img_size=512)
     val_transform = get_val_transforms(img_size=512)
 
-    train_loader = DataLoader(KneeSegDataset(train_imgs, train_masks, transform=train_transform), batch_size=batch_size, shuffle=True)
+    train_loader = DataLoader(KneeSegDataset(train_imgs, train_masks, transform=train_transform), batch_size=batch_size, shuffle=True, drop_last=True)
     # train_loader = DataLoader(KneeSegDataset(train_imgs, train_masks, transform=val_transform), batch_size=batch_size, shuffle=True)
 
-    val_loader   = DataLoader(KneeSegDataset(val_imgs, val_masks, transform=val_transform), batch_size=batch_size, shuffle=False)
+    val_loader   = DataLoader(KneeSegDataset(val_imgs, val_masks, transform=val_transform), batch_size=1, shuffle=False)
 
     # # Train Loop
     best_dice = 0
@@ -81,8 +85,11 @@ if __name__ == "__main__":
         train_loss = 0
         for imgs, masks in track(train_loader, description=f"Epoch {epoch+1} [Train]"):
             imgs, masks = imgs.to(device), masks.to(device)
-            # out = model(imgs)["out"]
-            out = model(imgs)
+            if model_name.startswith("deeplabv3"):
+                out = model(imgs)["out"]
+            else:
+                out = model(imgs)
+
 
             loss = criterion(out, F.interpolate(masks.unsqueeze(1).float(), out.shape[2:], mode="nearest").long())
             optimizer.zero_grad(); loss.backward(); optimizer.step()
@@ -93,7 +100,10 @@ if __name__ == "__main__":
         with torch.no_grad():
             for imgs, masks in track(val_loader, description=f"Epoch {epoch+1} [Val]"):
                 imgs, masks = imgs.to(device), masks.to(device)
-                out = model(imgs)
+                if model_name.startswith("deeplabv3"):
+                    out = model(imgs)["out"]
+                else:
+                    out = model(imgs)
                 loss = criterion(out, F.interpolate(masks.unsqueeze(1).float(), out.shape[2:], mode="nearest").long())
                 val_loss += loss.item()
                 preds = out.argmax(1, keepdim=True)

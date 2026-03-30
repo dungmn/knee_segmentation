@@ -25,9 +25,10 @@ def segment_baker_cyst(
     debug=False,
 ):
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    cv2.imwrite("logs/0original.png", img)  # Save original image for verification
     if img is None:
         raise ValueError(f"Failed to load image: {image_path}")
+    if debug:
+        cv2.imwrite("logs/0original.png", img)  # Save original image for verification
 
     final_mask = np.zeros_like(img)
 
@@ -48,6 +49,9 @@ def segment_baker_cyst(
 
     if debug:
         cv2.imwrite("logs/1roi_applied.png", img_roi)  # Save image after ROI for verification
+
+    # combined = np.hstack((img, img_roi))
+    # cv2.imwrite(os.path.join(output_dir, "viz_roi.png"), combined)
 
     # 3. Denoising
     # Use Bilateral Filter to blur noise while preserving sharp edges of fluid collections
