@@ -1,3 +1,4 @@
+from datetime import datetime
 import glob
 import os
 import argparse
@@ -14,11 +15,11 @@ BILATERAL_FILTER_CONFIG = {
     "sigmaSpace": 75,
 }
 
-BILATERAL_FILTER_CONFIG = {
-    "d": 11,
-    "sigmaColor": 100,
-    "sigmaSpace": 100,
-}
+# BILATERAL_FILTER_CONFIG = {
+#     "d": 7,
+#     "sigmaColor": 50,
+#     "sigmaSpace": 50,
+# }
 
 MORPH_KERNEL_SIZE = (7, 7)
 MORPH_KERNEL_ITERATIONS = 2
@@ -43,7 +44,7 @@ def get_centroid(cnt):
         return x + w / 2.0, y + h / 2.0
 
 
-def create_comparison_visualization(original_color, highlighted, mask, max_score):
+def create_comparison_visualization(original_color, highlighted, mask, max_score, mask_background):
     """Create a 3-panel comparison visualization.
     
     Args:
@@ -51,14 +52,14 @@ def create_comparison_visualization(original_color, highlighted, mask, max_score
         highlighted: Highlighted overlay image
         mask: Binary mask of detected region
         max_score: Area score to display
-        
+        mask_background: Background image for the mask panel
     Returns:
         Combined visualization as numpy array
     """
     mask_bool = mask == 255
     
     # Create colored mask visualization (green area)
-    mask_color = original_color.copy()
+    mask_color = mask_background.copy()
     mask_color[mask_bool] = (0, 255, 0)
     
     # Add area text annotation
@@ -116,6 +117,8 @@ def segment_baker_cyst(
     # Apply ROI to original image
     img_roi = cv2.bitwise_and(img, img, mask=roi_mask)
 
+
+
     if debug:
         cv2.imwrite("logs/1roi_applied.png", img_roi)  # Save image after ROI for verification
 
@@ -123,6 +126,7 @@ def segment_baker_cyst(
     # Use Bilateral Filter to blur noise while preserving sharp edges of fluid collections
     blurred = cv2.bilateralFilter(img, **BILATERAL_FILTER_CONFIG)
     # blurred = cv2.GaussianBlur(blurred, (5, 5), 0)
+    # blurred = img
     if debug:
         cv2.imwrite("logs/2blurred.png", blurred)
 
@@ -299,6 +303,7 @@ if __name__ == "__main__":
         "--debug", default=True, action="store_true", help="Enable debug mode with intermediate outputs and logs"
     )
     parser.add_argument(
+        "-i",
         "--input-dir",
         default="data/processed/annotations/post_trans-baker_cyst/batch_000",
         help="Input directory containing images",
@@ -322,7 +327,11 @@ if __name__ == "__main__":
         output_dir = "logs"  # Use logs for single image debug
     else:
         # Process all images in directory
-        image_paths = sorted(glob.glob(os.path.join(args.input_dir, "*.png")))
+        if os.path.isfile(args.input_dir):
+            with open(args.input_dir, "r") as f:
+                image_paths = [line.strip() for line in f if line.strip()]
+        else:
+            image_paths = sorted(glob.glob(os.path.join(args.input_dir, "*.png")))
         output_dir = args.output_dir
     
     # Process images
@@ -357,17 +366,20 @@ if __name__ == "__main__":
         overlay = original_color.copy()
         overlay[mask == 255] = (0, 0, 255)  # BGR red
         highlighted = cv2.addWeighted(original_color, 0.7, overlay, 0.3, 0)
-        
+        morph_img_color = cv2.cvtColor(morph_img, cv2.COLOR_GRAY2BGR)
+
         # Create comparison visualization
         combined = create_comparison_visualization(
-            original_color, highlighted, mask, max_score
+            original_color, highlighted, mask, max_score, morph_img_color
         )
         
         # Save result
-        basename = os.path.basename(img_path)
-        output_path = os.path.join(output_dir, basename)
-        cv2.imwrite(output_path, combined)
-        
+        if cyst_found:
+            
+            basename = os.path.basename(img_path)
+            output_path = os.path.join(output_dir, os.path.basename(args.input_dir), basename)
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            cv2.imwrite(output_path, combined)
         if args.verbose:
             status = "✓ Found" if cyst_found else "✗ Not found"
             print(f"  {status} | Saved to: {output_path}")
