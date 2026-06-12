@@ -125,9 +125,7 @@ python train.py --epochs 1 --batch-size 2 --n-folds 2
 # Supported --model-name values: deeplabv3_resnet50 | deeplabv3_resnet101 | deeplabv3plus_resnet50 | deeplabv3plus_resnet101 | Unet
 ```
 
-> **Note:** `train.py` currently hard-codes `if fold_idx != 5: continue` — only fold 5 is trained. Remove or adjust this guard to train all folds.
-
-> **Dispatch rule:** All dispatch sites check `deeplabv3plus` **before** `deeplabv3` because the plus variant also starts with that prefix.
+> **Note:** `train.py` default is 30 epochs. The fold guard (`if fold_idx != 5`) has been removed — all folds are now trained by default.
 
 ### Evaluation — DL model (single fold)
 ```bash

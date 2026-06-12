@@ -160,7 +160,7 @@ if __name__ == "__main__":
     parser.add_argument("--model-name", type=str, default="deeplabv3_resnet101")
     parser.add_argument("--num-classes", type=int, default=7)
     parser.add_argument("--batch-size", type=int, default=6)
-    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--n-folds", type=int, default=5)
     parser.add_argument(
         "--dataset-dir",
@@ -190,9 +190,6 @@ if __name__ == "__main__":
     fold_best_scores = []
 
     for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(all_imgs), start=1):
-        if fold_idx != 5:
-            print(f"Skipping fold {fold_idx} (only fold 4 is trained in this run)")
-            continue
         train_imgs = [all_imgs[i] for i in train_idx]
         val_imgs = [all_imgs[i] for i in val_idx]
 
