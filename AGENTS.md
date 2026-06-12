@@ -189,11 +189,11 @@ python infer.py
 - Classifier head replaced with: `ASPP block → Dropout(0.3) → Conv2d(in_ch, num_classes, 1)`.
 - Forward pass returns a dict; use `model(x)["out"]` for logits.
 
-### U-Net (`src/models/unet.py`)
-- Custom implementation with `dual_conv` (BN→Conv3×3→BN→ReLU ×2) blocks.
-- 4 encoder stages (64 → 128 → 256 → 512 → 1024), 4 decoder stages with `ConvTranspose2d` + skip connections via `crop_tensor`.
-- Output activation: `Sigmoid` (use `logits.argmax(1)` for class prediction regardless).
-- Returns a plain tensor (no dict wrapper).
+### U-Net (`src/models/unet.py` — via `segmentation_models_pytorch`)
+- Built with `smp.Unet(encoder_name, encoder_weights="imagenet", classes=num_classes, activation=None)`.
+- Default encoder: `resnet34` (ImageNet-pretrained). Any smp-supported encoder works (e.g. `resnet50`, `efficientnet-b4`).
+- Returns a **plain tensor** (no dict wrapper) — the existing dispatch `model(imgs)` (non-`deeplabv3*` branch) works unchanged.
+- `build_unet(num_classes, encoder_name)` signature preserved; callers need no changes.
 
 ### Training loop (`train.py`)
 - Loss: `monai.losses.DiceCELoss(to_onehot_y=True, softmax=True)`.
