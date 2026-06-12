@@ -1,5 +1,6 @@
 import argparse
 import os
+import json
 from typing import Dict, Tuple, List
 import numpy as np
 import torch
@@ -70,7 +71,7 @@ def load_model(weights_path, model_name, num_classes, device):
     model.eval()
     return model
 
-def load_test_data(dataset_dir, seed, file_name="test.txt"):
+def load_split_data(dataset_dir, seed, file_name="test.txt"):
     image_dir = f"{dataset_dir}/images"
     test_file = f"{dataset_dir}/split/seed_{seed}/{file_name}"
 
@@ -78,6 +79,14 @@ def load_test_data(dataset_dir, seed, file_name="test.txt"):
         test_images = [f"{image_dir}/{line.strip()}" for line in f.readlines()]
     test_masks = [p.replace("images", "masks") for p in test_images]
 
+    return test_images, test_masks
+
+
+def load_val_list(val_list_file):
+    """Load image paths directly from a validation list file (e.g., fold_XX_val_imgs.txt)."""
+    with open(val_list_file, "r") as f:
+        test_images = [line.strip() for line in f.readlines() if line.strip()]
+    test_masks = [p.replace("/images/", "/masks/") for p in test_images]
     return test_images, test_masks
 
 
@@ -131,7 +140,7 @@ def evaluate_model(args, test_imgs, test_masks, device):
 
     print("\n=== Segmentation Results (6 classes) ===")
 
-    ious, dices = [], []
+    ious, dices, precisions, recalls = [], [], [], []
     for c in EVAL_CLASSES:
         tp = stats[c]["TP"]
         fp = stats[c]["FP"]
@@ -140,6 +149,8 @@ def evaluate_model(args, test_imgs, test_masks, device):
         iou, dice, prec, rec = compute_metrics(tp, fp, fn)
         ious.append(iou)
         dices.append(dice)
+        precisions.append(prec)
+        recalls.append(rec)
         print(f"{CLASS_NAMES[c]:15s} | Dice: {dice:.4f} | IoU: {iou:.4f} | P: {prec:.4f} | R: {rec:.4f}")
 
     print("\n--- Mean (macro, no background) ---")
@@ -165,6 +176,37 @@ def evaluate_model(args, test_imgs, test_masks, device):
     print(f"Specificity: {det_spec:.4f}")
     print(f"F1-score   : {det_f1:.4f}")
     print(f"Confusion  : TP={det_tp}, FP={det_fp}, FN={det_fn}, TN={det_tn}")
+    
+    return {
+        "segmentation": {
+            "per_class": {
+                CLASS_NAMES[c]: {
+                    "dice": float(dices[i]),
+                    "iou": float(ious[i]),
+                    "precision": float(precisions[i]),
+                    "recall": float(recalls[i]),
+                }
+                for i, c in enumerate(EVAL_CLASSES)
+            },
+            "dices": [float(d) for d in dices],
+            "ious": [float(i) for i in ious],
+            "precisions": [float(p) for p in precisions],
+            "recalls": [float(r) for r in recalls],
+            "mean_dice": float(np.mean(dices)),
+            "mean_iou": float(np.mean(ious)),
+        },
+        "detection": {
+            "accuracy": float(det_acc),
+            "precision": float(det_prec),
+            "recall": float(det_rec),
+            "specificity": float(det_spec),
+            "f1": float(det_f1),
+            "tp": int(det_tp),
+            "fp": int(det_fp),
+            "fn": int(det_fn),
+            "tn": int(det_tn),
+        },
+    }
 
 
 def evaluate_cv(args, test_imgs, test_masks):
@@ -241,10 +283,22 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate segmentation model")
     parser.add_argument("--method", type=str, default="model", choices=["model", "cv"], help="Evaluation method: deep model or classical CV")
     parser.add_argument("--weights", type=str, default=f"experiments/20260129-162624/deeplabv3_resnet50_seed_16/best_model.pth")
+    parser.add_argument(
+        "--val-list",
+        type=str,
+        default=None,
+        help="Path to validation image list file (e.g., fold_01_val_imgs.txt). If provided, ignores --dataset-dir and --split-file.",
+    )
     parser.add_argument("--dataset-dir", nargs="+", default=[
         "data/processed/training/post_trans-27-random-flipped-batch_000",
         "data/processed/training/post_trans-baker_cyst-flipped-batch_000"
     ])
+    parser.add_argument(
+        "--split-file",
+        type=str,
+        default="test.txt",
+        help="Split file under split/seed_<seed>/ to evaluate, for example val.txt or test.txt",
+    )
     parser.add_argument("--seed", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--num-classes", type=int, default=7)
@@ -254,15 +308,25 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     test_imgs, test_masks = [], []
-    for d in args.dataset_dir:
-        t_imgs, t_masks = load_test_data(d, args.seed, file_name="test.txt")
-        test_imgs.extend(t_imgs)
-        test_masks.extend(t_masks)
-
-    print(f"Found {len(test_imgs)} test images from {len(args.dataset_dir)} dataset(s)")
+    if args.val_list:
+        test_imgs, test_masks = load_val_list(args.val_list)
+        print(f"Found {len(test_imgs)} images from validation list '{args.val_list}'")
+    else:
+        for d in args.dataset_dir:
+            t_imgs, t_masks = load_split_data(d, args.seed, file_name=args.split_file)
+            test_imgs.extend(t_imgs)
+            test_masks.extend(t_masks)
+        print(f"Found {len(test_imgs)} images from {len(args.dataset_dir)} dataset(s) using split file '{args.split_file}'")
 
     if args.method == "model":
-        evaluate_model(args, test_imgs, test_masks, device)
+        results = evaluate_model(args, test_imgs, test_masks, device)
+        # Save results to JSON if val_list provided (for eval_folds.py aggregation)
+        if args.val_list and results:
+            fold_name = os.path.basename(args.val_list).replace("_val_imgs.txt", "")
+            results_file = os.path.join(os.path.dirname(args.val_list), f"{fold_name}_results.json")
+            with open(results_file, "w") as f:
+                json.dump(results, f, indent=2)
+            print(f"\nSaved results to: {results_file}")
     else:
         evaluate_cv(args, test_imgs, test_masks)
 

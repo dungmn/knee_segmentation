@@ -2,6 +2,7 @@ import argparse
 import csv
 import glob
 import os
+import json
 from typing import Dict, List, Tuple
 
 import cv2
@@ -149,17 +150,13 @@ def print_fold_result(result: Dict[str, object], cyst_class_id: int) -> None:
         f"{CLASS_NAMES[cyst_class_id]:15s} | Dice: {result['seg_dice']:.4f} | "
         f"IoU: {result['seg_iou']:.4f} | P: {result['seg_precision']:.4f} | R: {result['seg_recall']:.4f}"
     )
-    # print("Cyst Presence Detection (image-level):")
-    # print(f"Accuracy   : {det_metrics['acc']:.4f}")
-    # print(f"Precision  : {det_metrics['precision']:.4f}")
-    # print(f"Recall     : {det_metrics['recall']:.4f}")
-    # print(f"Specificity: {det_metrics['specificity']:.4f}")
-    # print(f"F1-score   : {det_metrics['f1']:.4f}")
+    print("Cyst Presence Detection (image-level):")
+    print(f"  Accuracy: {det_metrics['acc']:.4f} | Precision: {det_metrics['precision']:.4f} | Recall: {det_metrics['recall']:.4f} | Specificity: {det_metrics['specificity']:.4f} | F1: {det_metrics['f1']:.4f}")
     det_tp = det["TP"]
     det_fp = det["FP"]
     det_fn = det["FN"]
     det_tn = det["TN"]
-    print(f"Confusion  : TP={det_tp}, FP={det_fp}, FN={det_fn}, TN={det_tn}")
+    print(f"Confusion: TP={det_tp}, FP={det_fp}, FN={det_fn}, TN={det_tn}")
 
 
 def summarize_all(results: List[Dict[str, object]], cyst_class_id: int) -> Dict[str, object]:
@@ -183,13 +180,9 @@ def summarize_all(results: List[Dict[str, object]], cyst_class_id: int) -> Dict[
         f"{CLASS_NAMES[cyst_class_id]:15s} | Dice: {dice:.4f} | "
         f"IoU: {iou:.4f} | P: {prec:.4f} | R: {rec:.4f}"
     )
-    # print("Cyst Presence Detection (image-level):")
-    # print(f"Accuracy   : {det_metrics['acc']:.4f}")
-    # print(f"Precision  : {det_metrics['precision']:.4f}")
-    # print(f"Recall     : {det_metrics['recall']:.4f}")
-    # print(f"Specificity: {det_metrics['specificity']:.4f}")
-    # print(f"F1-score   : {det_metrics['f1']:.4f}")
-    # print(f"Confusion  : TP={det_tp}, FP={det_fp}, FN={det_fn}, TN={det_tn}")
+    print("Cyst Presence Detection (image-level):")
+    print(f"  Accuracy: {det_metrics['acc']:.4f} | Precision: {det_metrics['precision']:.4f} | Recall: {det_metrics['recall']:.4f} | Specificity: {det_metrics['specificity']:.4f} | F1: {det_metrics['f1']:.4f}")
+    print(f"Confusion: TP={det_tp}, FP={det_fp}, FN={det_fn}, TN={det_tn}")
 
     return {
         "list_file": "overall",
@@ -203,6 +196,121 @@ def summarize_all(results: List[Dict[str, object]], cyst_class_id: int) -> Dict[
         "seg_recall": rec,
         "det": {"TP": det_tp, "FP": det_fp, "FN": det_fn, "TN": det_tn},
     }
+
+
+def compute_fold_statistics(results: List[Dict[str, object]]) -> Dict[str, object]:
+    """Compute mean and std statistics across all folds."""
+    fold_dices = [r["seg_dice"] for r in results]
+    fold_ious = [r["seg_iou"] for r in results]
+    fold_precisions = [r["seg_precision"] for r in results]
+    fold_recalls = [r["seg_recall"] for r in results]
+    
+    fold_det_accs = []
+    fold_det_precs = []
+    fold_det_recs = []
+    fold_det_specs = []
+    fold_det_f1s = []
+    
+    for r in results:
+        det_metrics = compute_detection_metrics(r["det"])
+        fold_det_accs.append(det_metrics["acc"])
+        fold_det_precs.append(det_metrics["precision"])
+        fold_det_recs.append(det_metrics["recall"])
+        fold_det_specs.append(det_metrics["specificity"])
+        fold_det_f1s.append(det_metrics["f1"])
+    
+    return {
+        "segmentation": {
+            "dice": {
+                "values": fold_dices,
+                "mean": float(np.mean(fold_dices)),
+                "std": float(np.std(fold_dices)),
+                "min": float(np.min(fold_dices)),
+                "max": float(np.max(fold_dices)),
+            },
+            "iou": {
+                "values": fold_ious,
+                "mean": float(np.mean(fold_ious)),
+                "std": float(np.std(fold_ious)),
+                "min": float(np.min(fold_ious)),
+                "max": float(np.max(fold_ious)),
+            },
+            "precision": {
+                "values": fold_precisions,
+                "mean": float(np.mean(fold_precisions)),
+                "std": float(np.std(fold_precisions)),
+                "min": float(np.min(fold_precisions)),
+                "max": float(np.max(fold_precisions)),
+            },
+            "recall": {
+                "values": fold_recalls,
+                "mean": float(np.mean(fold_recalls)),
+                "std": float(np.std(fold_recalls)),
+                "min": float(np.min(fold_recalls)),
+                "max": float(np.max(fold_recalls)),
+            },
+        },
+        "detection": {
+            "accuracy": {
+                "values": fold_det_accs,
+                "mean": float(np.mean(fold_det_accs)),
+                "std": float(np.std(fold_det_accs)),
+                "min": float(np.min(fold_det_accs)),
+                "max": float(np.max(fold_det_accs)),
+            },
+            "precision": {
+                "values": fold_det_precs,
+                "mean": float(np.mean(fold_det_precs)),
+                "std": float(np.std(fold_det_precs)),
+                "min": float(np.min(fold_det_precs)),
+                "max": float(np.max(fold_det_precs)),
+            },
+            "recall": {
+                "values": fold_det_recs,
+                "mean": float(np.mean(fold_det_recs)),
+                "std": float(np.std(fold_det_recs)),
+                "min": float(np.min(fold_det_recs)),
+                "max": float(np.max(fold_det_recs)),
+            },
+            "specificity": {
+                "values": fold_det_specs,
+                "mean": float(np.mean(fold_det_specs)),
+                "std": float(np.std(fold_det_specs)),
+                "min": float(np.min(fold_det_specs)),
+                "max": float(np.max(fold_det_specs)),
+            },
+            "f1": {
+                "values": fold_det_f1s,
+                "mean": float(np.mean(fold_det_f1s)),
+                "std": float(np.std(fold_det_f1s)),
+                "min": float(np.min(fold_det_f1s)),
+                "max": float(np.max(fold_det_f1s)),
+            },
+        },
+    }
+
+
+def print_cv_statistics(stats: Dict[str, object], cyst_class_id: int) -> None:
+    """Print cross-validation statistics."""
+    print("\n" + "=" * 90)
+    print("CROSS-VALIDATION STATISTICS (across all folds)")
+    print("=" * 90)
+    
+    print("\n[Segmentation Metrics (Baker Cyst)]")
+    seg_stats = stats["segmentation"]
+    print(f"Dice      : {seg_stats['dice']['mean']:.4f} ± {seg_stats['dice']['std']:.4f} (min: {seg_stats['dice']['min']:.4f}, max: {seg_stats['dice']['max']:.4f})")
+    print(f"IoU       : {seg_stats['iou']['mean']:.4f} ± {seg_stats['iou']['std']:.4f} (min: {seg_stats['iou']['min']:.4f}, max: {seg_stats['iou']['max']:.4f})")
+    print(f"Precision : {seg_stats['precision']['mean']:.4f} ± {seg_stats['precision']['std']:.4f} (min: {seg_stats['precision']['min']:.4f}, max: {seg_stats['precision']['max']:.4f})")
+    print(f"Recall    : {seg_stats['recall']['mean']:.4f} ± {seg_stats['recall']['std']:.4f} (min: {seg_stats['recall']['min']:.4f}, max: {seg_stats['recall']['max']:.4f})")
+    
+    print("\n[Detection Metrics (Cyst Presence - image level)]")
+    det_stats = stats["detection"]
+    print(f"Accuracy    : {det_stats['accuracy']['mean']:.4f} ± {det_stats['accuracy']['std']:.4f} (min: {det_stats['accuracy']['min']:.4f}, max: {det_stats['accuracy']['max']:.4f})")
+    print(f"Precision   : {det_stats['precision']['mean']:.4f} ± {det_stats['precision']['std']:.4f} (min: {det_stats['precision']['min']:.4f}, max: {det_stats['precision']['max']:.4f})")
+    print(f"Recall      : {det_stats['recall']['mean']:.4f} ± {det_stats['recall']['std']:.4f} (min: {det_stats['recall']['min']:.4f}, max: {det_stats['recall']['max']:.4f})")
+    print(f"Specificity : {det_stats['specificity']['mean']:.4f} ± {det_stats['specificity']['std']:.4f} (min: {det_stats['specificity']['min']:.4f}, max: {det_stats['specificity']['max']:.4f})")
+    print(f"F1-score    : {det_stats['f1']['mean']:.4f} ± {det_stats['f1']['std']:.4f} (min: {det_stats['f1']['min']:.4f}, max: {det_stats['f1']['max']:.4f})")
+    print("=" * 90)
 
 
 def save_results_csv(csv_path: str, results: List[Dict[str, object]], overall_result: Dict[str, object]) -> None:
@@ -314,6 +422,16 @@ def main() -> None:
     csv_path = args.csv_path or os.path.join(args.experiment_dir, "cv_val_results.csv")
     save_results_csv(csv_path, results, overall_result)
     print(f"Saved CSV results to: {csv_path}")
+    
+    # Compute and print cross-validation statistics
+    stats = compute_fold_statistics(results)
+    print_cv_statistics(stats, cyst_class_id=args.cyst_class_id)
+    
+    # Save statistics to JSON
+    stats_json_path = os.path.join(args.experiment_dir, "cv_statistics.json")
+    with open(stats_json_path, "w") as f:
+        json.dump(stats, f, indent=2)
+    print(f"\nSaved statistics to: {stats_json_path}")
 
 
 if __name__ == "__main__":

@@ -69,7 +69,7 @@ def train_one_fold(
     best_class_id=6,
     best_class_name="bakers_cyst",
 ):
-    saved_weights_path = f"{experiment_dir}/fold_{fold_idx:02d}_best_model.pth"
+    last_weights_path = f"{experiment_dir}/fold_{fold_idx:02d}_last_model.pth"
     os.makedirs(experiment_dir, exist_ok=True)
 
     train_masks = [image_to_mask_path(p) for p in train_imgs]
@@ -143,10 +143,12 @@ def train_one_fold(
 
         if dice > best_dice:
             best_dice = dice
-            print(f"Fold {fold_idx}: new best model at epoch {epoch + 1}, saving to {saved_weights_path}")
-            torch.save(model.state_dict(), saved_weights_path)
+            print(f"Fold {fold_idx}: new best dice at epoch {epoch + 1}: {best_dice:.4f}")
 
-    return best_dice
+    torch.save(model.state_dict(), last_weights_path)
+    print(f"Fold {fold_idx}: saved last model to {last_weights_path}")
+
+    return dice
 
 
 if __name__ == "__main__":
@@ -185,12 +187,14 @@ if __name__ == "__main__":
     fold_best_scores = []
 
     for fold_idx, (train_idx, val_idx) in enumerate(kfold.split(all_imgs), start=1):
+        if fold_idx != 5:
+            print(f"Skipping fold {fold_idx} (only fold 4 is trained in this run)")
+            continue
         train_imgs = [all_imgs[i] for i in train_idx]
         val_imgs = [all_imgs[i] for i in val_idx]
 
-        # val_split_file = f"{experiment_dir}/fold_{fold_idx:02d}_val_imgs.txt"
-        # save_image_list(val_split_file, val_imgs)
-        # continue
+        val_split_file = f"{experiment_dir}/fold_{fold_idx:02d}_val_imgs.txt"
+        save_image_list(val_split_file, val_imgs)
 
         print("-" * 90)
         print(f"Fold {fold_idx}/{args.n_folds} | Train={len(train_imgs)} | Val={len(val_imgs)}")

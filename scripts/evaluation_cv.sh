@@ -1,0 +1,1 @@
+python eval_cv_val.py -e experiments/20260403-104345/deeplabv3_resnet101-seed_16-cv5
