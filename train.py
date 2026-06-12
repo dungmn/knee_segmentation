@@ -11,11 +11,14 @@ from sklearn.model_selection import KFold
 
 from src.data.dataset import KneeSegDataset
 from src.data.augmentations import get_train_transforms, get_val_transforms
-from src.models.model import build_deeplabv3
+from src.models.model import build_deeplabv3, build_deeplabv3plus
 from src.models.unet import build_unet
 
 
 def build_model(model_name, num_classes, device):
+    # NOTE: check deeplabv3plus BEFORE deeplabv3 — the plus variant also starts with "deeplabv3"
+    if model_name.startswith("deeplabv3plus"):
+        return build_deeplabv3plus(num_classes, model_name=model_name).to(device)
     if model_name.startswith("deeplabv3"):
         return build_deeplabv3(num_classes, model_name=model_name).to(device)
     if model_name == "Unet":

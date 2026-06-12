@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 import cv2
 from src.data.dataset import KneeSegDataset
 from src.data.augmentations import get_val_transforms
-from src.models.model import build_deeplabv3
+from src.models.model import build_deeplabv3, build_deeplabv3plus
 from src.models.unet import build_unet
 from cv import segment_baker_cyst
 from rich import print
@@ -63,7 +63,10 @@ def update_binary_stats(stats, pred_positive, gt_positive):
         stats["TN"] += 1
 
 def load_model(weights_path, model_name, num_classes, device):
-    if model_name.startswith("deeplabv3"):
+    # NOTE: check deeplabv3plus BEFORE deeplabv3
+    if model_name.startswith("deeplabv3plus"):
+        model = build_deeplabv3plus(num_classes, model_name=model_name).to(device)
+    elif model_name.startswith("deeplabv3"):
         model = build_deeplabv3(num_classes, model_name=model_name).to(device)
     else:
         model = build_unet(num_classes=num_classes).to(device)
@@ -125,7 +128,7 @@ def evaluate_model(args, test_imgs, test_masks, device):
 
             if gt_np.ndim == 4 and gt_np.shape[1] == 1:
                 gt_np = gt_np.squeeze(1)
-            if model_name.startswith("deeplabv3"):  
+            if model_name.startswith("deeplabv3"):  # covers both deeplabv3 and deeplabv3plus
                 outputs = model(images)["out"]
             else:
                 outputs = model(images)

@@ -122,10 +122,12 @@ python train.py \
 # Quick smoke-run (1 epoch, small batch)
 python train.py --epochs 1 --batch-size 2 --n-folds 2
 
-# Supported --model-name values: deeplabv3_resnet50 | deeplabv3_resnet101 | Unet
+# Supported --model-name values: deeplabv3_resnet50 | deeplabv3_resnet101 | deeplabv3plus_resnet50 | deeplabv3plus_resnet101 | Unet
 ```
 
 > **Note:** `train.py` currently hard-codes `if fold_idx != 5: continue` — only fold 5 is trained. Remove or adjust this guard to train all folds.
+
+> **Dispatch rule:** All dispatch sites check `deeplabv3plus` **before** `deeplabv3` because the plus variant also starts with that prefix.
 
 ### Evaluation — DL model (single fold)
 ```bash
@@ -175,7 +177,14 @@ python infer.py
 
 ## Architecture notes
 
-### DeepLabV3+ (`src/models/model.py`)
+### DeepLabV3+ (`src/models/model.py` — via `segmentation_models_pytorch`)
+- Built with `smp.DeepLabV3Plus(encoder_name, encoder_weights="imagenet", classes=num_classes, activation=None)`.
+- Encoder: ImageNet-pretrained ResNet-50 or ResNet-101 (selected by model name).
+- Wrapped in `_SmpDictWrapper` so forward returns `{"out": logits}` — **same dict convention as DeepLabV3**; the `model(x)["out"]` dispatch works unchanged.
+- Model names: `deeplabv3plus_resnet50`, `deeplabv3plus_resnet101`.
+- Requires: `segmentation-models-pytorch` (added to `requirements.txt`).
+
+### DeepLabV3 (`src/models/model.py` — torchvision wrapper)
 - Pretrained backbone: ResNet-50 or ResNet-101 with COCO weights.
 - Classifier head replaced with: `ASPP block → Dropout(0.3) → Conv2d(in_ch, num_classes, 1)`.
 - Forward pass returns a dict; use `model(x)["out"]` for logits.

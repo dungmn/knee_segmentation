@@ -2,7 +2,7 @@ import os
 import torch
 import cv2
 import matplotlib.pyplot as plt
-from src.models.model import build_deeplabv3
+from src.models.model import build_deeplabv3, build_deeplabv3plus
 from src.visualization.draw_mask import draw_mask
 import numpy as np
 
@@ -34,7 +34,10 @@ if __name__ == "__main__":
     os.makedirs(output_dir, exist_ok=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if model_name.startswith("deeplabv3"):
+    # NOTE: check deeplabv3plus BEFORE deeplabv3
+    if model_name.startswith("deeplabv3plus"):
+        model = build_deeplabv3plus(num_classes=7, model_name=model_name).to(device)
+    elif model_name.startswith("deeplabv3"):
         model = build_deeplabv3(num_classes=7, model_name=model_name).to(device)
     elif model_name.startswith("Unet"):
         from src.models.unet import build_unet

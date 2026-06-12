@@ -6,3 +6,4 @@ scikit-learn
 matplotlib
 pandas
 albumentations
+segmentation-models-pytorch
