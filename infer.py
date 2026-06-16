@@ -41,7 +41,8 @@ if __name__ == "__main__":
         model = build_deeplabv3(num_classes=7, model_name=model_name).to(device)
     elif model_name.startswith("Unet"):
         from src.models.unet import build_unet
-        model = build_unet(num_classes=7).to(device)
+        encoder = model_name.split("_", 1)[1] if "_" in model_name else "resnet34"
+        model = build_unet(num_classes=7, encoder_name=encoder).to(device)
     else:
         raise ValueError(f"Unsupported model name: {model_name}")
 

@@ -3,6 +3,7 @@ import subprocess
 import os
 import glob
 import json
+import sys
 from pathlib import Path
 import numpy as np
 
@@ -35,7 +36,7 @@ def find_fold_files(experiment_dir):
 def run_eval_fold(weights_path, val_list_path, method="model", batch_size=8, num_classes=7):
     """Run evaluation for a single fold."""
     cmd = [
-        "python", "eval.py",
+        sys.executable, "eval.py",
         "--method", method,
         "--weights", weights_path,
         "--val-list", val_list_path,

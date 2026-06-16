@@ -122,7 +122,7 @@ python train.py \
 # Quick smoke-run (1 epoch, small batch)
 python train.py --epochs 1 --batch-size 2 --n-folds 2
 
-# Supported --model-name values: deeplabv3_resnet50 | deeplabv3_resnet101 | deeplabv3plus_resnet50 | deeplabv3plus_resnet101 | Unet
+# Supported --model-name values: deeplabv3_resnet50 | deeplabv3_resnet101 | deeplabv3plus_resnet50 | deeplabv3plus_resnet101 | Unet | Unet_resnet101
 ```
 
 > **Note:** `train.py` default is 30 epochs. The fold guard (`if fold_idx != 5`) has been removed — all folds are now trained by default.
@@ -189,7 +189,8 @@ python infer.py
 
 ### U-Net (`src/models/unet.py` — via `segmentation_models_pytorch`)
 - Built with `smp.Unet(encoder_name, encoder_weights="imagenet", classes=num_classes, activation=None)`.
-- Default encoder: `resnet34` (ImageNet-pretrained). Any smp-supported encoder works (e.g. `resnet50`, `efficientnet-b4`).
+- Default encoder: `resnet34` (ImageNet-pretrained). Any smp-supported encoder works (e.g. `resnet50`, `resnet101`, `efficientnet-b4`).
+- Model names: `Unet` (default resnet34), `Unet_resnet101`, `Unet_resnet50`, etc. — the part after `_` is passed as `encoder_name`.
 - Returns a **plain tensor** (no dict wrapper) — the existing dispatch `model(imgs)` (non-`deeplabv3*` branch) works unchanged.
 - `build_unet(num_classes, encoder_name)` signature preserved; callers need no changes.
 

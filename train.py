@@ -21,8 +21,9 @@ def build_model(model_name, num_classes, device):
         return build_deeplabv3plus(num_classes, model_name=model_name).to(device)
     if model_name.startswith("deeplabv3"):
         return build_deeplabv3(num_classes, model_name=model_name).to(device)
-    if model_name == "Unet":
-        return build_unet(num_classes=num_classes).to(device)
+    if model_name.startswith("Unet"):
+        encoder = model_name.split("_", 1)[1] if "_" in model_name else "resnet34"
+        return build_unet(num_classes=num_classes, encoder_name=encoder).to(device)
     raise ValueError(f"Unsupported model name: {model_name}")
 
 
