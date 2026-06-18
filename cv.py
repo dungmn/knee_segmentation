@@ -15,14 +15,8 @@ BILATERAL_FILTER_CONFIG = {
     "sigmaSpace": 75,
 }
 
-# BILATERAL_FILTER_CONFIG = {
-#     "d": 7,
-#     "sigmaColor": 50,
-#     "sigmaSpace": 50,
-# }
-
-MORPH_KERNEL_SIZE = (7, 7)
-MORPH_KERNEL_ITERATIONS = 2
+MORPH_KERNEL_SIZE = (5, 5)
+MORPH_KERNEL_ITERATIONS = 1
 
 # ==== Helper Functions ====
 def get_centroid(cnt):
@@ -77,117 +71,94 @@ def create_comparison_visualization(original_color, highlighted, mask, max_score
 
 def segment_baker_cyst(
     image_path,
-    roi_top=0.2,
-    roi_bottom=0.7,
-    roi_left=0.1,
-    roi_right=0.9,
-    threshold_value=20,
-    area_min=500,
-    area_max=25000,
-    aspect_ratio_min=1.2,
-    aspect_ratio_max=4.0,
-    solidity_min=0.75,
-    extent_min=0.45,
-    circularity_min=0.2,
+    roi_top=0.15,
+    roi_bottom=0.80,
+    roi_left=0.05,
+    roi_right=0.95,
+    area_min=400,
+    area_max=40000,
+    aspect_ratio_min=0.4,
+    aspect_ratio_max=5.0,
+    solidity_min=0.65,
+    extent_min=0.40,
+    circularity_min=0.20,
     bottom_exclusion_margin=3,
-    center_weight=0.5,  # 0.0 -> prefer largest area only, 1.0 -> prefer most centered only
-    upper_half_bonus=0.25,  # additional score bonus if contour is in upper half of image
+    center_weight=0.5,
+    upper_half_bonus=0.15,
+    detect_offset=-28,
+    refine_offset=-5,
     debug=False,
 ):
+    """Two-stage Baker's cyst segmentation.
+
+    Stage 1 (detect): Use a strict threshold (Otsu + detect_offset) to find
+    candidate cyst contours with high precision.
+
+    Stage 2 (refine): Around the detected contour, apply a permissive threshold
+    (Otsu + refine_offset) to capture the full cyst extent.
+    """
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if img is None:
         raise ValueError(f"Failed to load image: {image_path}")
     if debug:
-        cv2.imwrite("logs/0original.png", img)  # Save original image for verification
+        cv2.imwrite("logs/0original.png", img)
 
     final_mask = np.zeros_like(img)
 
-    # 2. Crop/Define Region of Interest (ROI)
-    # Ultrasound images usually have black borders and text at edges, we only care about the central part
     h, w = img.shape
     roi_top = int(h * roi_top)
-    roi_bottom = int(h * roi_bottom)  # Only take the band containing ultrasound image
+    roi_bottom = int(h * roi_bottom)
     roi_left = int(w * roi_left)
     roi_right = int(w * roi_right)
-    
-    # Create rectangular mask to exclude text and UI at edges
+
     roi_mask = np.zeros_like(img)
     cv2.rectangle(roi_mask, (roi_left, roi_top), (roi_right, roi_bottom), 255, -1)
-    
-    # Apply ROI to original image
-    img_roi = cv2.bitwise_and(img, img, mask=roi_mask)
-
-
 
     if debug:
-        cv2.imwrite("logs/1roi_applied.png", img_roi)  # Save image after ROI for verification
+        img_roi = cv2.bitwise_and(img, img, mask=roi_mask)
+        cv2.imwrite("logs/1roi_applied.png", img_roi)
 
-    # 3. Denoising
-    # Use Bilateral Filter to blur noise while preserving sharp edges of fluid collections
+    # Denoising
     blurred = cv2.bilateralFilter(img, **BILATERAL_FILTER_CONFIG)
-    # blurred = cv2.GaussianBlur(blurred, (5, 5), 0)
-    # blurred = img
     if debug:
         cv2.imwrite("logs/2blurred.png", blurred)
 
+    # === Stage 1: Detect — strict threshold to locate cyst candidates ===
+    t_otsu, _ = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
-
-
-    # 4. Thresholding
-    # Baker's cyst appears extremely dark (pixel values near 0).
-    # Set threshold value: pixels darker than threshold become white (255), brighter become black (0)
-    # _, thresh = cv2.threshold(blurred, threshold_value, 255, cv2.THRESH_BINARY_INV)
-
-    t, _ = cv2.threshold(
-        blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
-    )
-
-    t = t - 30 
-    _, thresh = cv2.threshold(blurred, t, 255, cv2.THRESH_BINARY_INV)
-
-    # Remove black background outside ultrasound region mistakenly identified as cyst due to THRESH_BINARY_INV
-    thresh = cv2.bitwise_and(thresh, thresh, mask=roi_mask)
+    t_detect = max(t_otsu + detect_offset, 1)
+    _, thresh_detect = cv2.threshold(blurred, t_detect, 255, cv2.THRESH_BINARY_INV)
+    thresh_detect = cv2.bitwise_and(thresh_detect, thresh_detect, mask=roi_mask)
 
     if debug:
-        cv2.imwrite("logs/3thresholded.png", thresh)
+        cv2.imwrite("logs/3thresholded.png", thresh_detect)
 
-
-
-    # 5. Morphological Operations
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, MORPH_KERNEL_SIZE)
-    
-    # Opening: Remove small white noise (blood vessels, shadow artifacts)
-    morph = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=MORPH_KERNEL_ITERATIONS)
-    # Closing: Fill black holes inside white cyst regions (if any cloudiness)
+    morph = cv2.morphologyEx(thresh_detect, cv2.MORPH_OPEN, kernel, iterations=MORPH_KERNEL_ITERATIONS)
     morph = cv2.morphologyEx(morph, cv2.MORPH_CLOSE, kernel, iterations=MORPH_KERNEL_ITERATIONS)
 
     if debug:
         cv2.imwrite("logs/4morphological.png", morph)
 
-    # 6. Find and Filter Contours
+    # Find and score contours
     contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
+
     best_cnt = None
+    best_score = -1.0
     max_score = -1
-    best_score = -1.0  # combined score used for selection when center priority is enabled
 
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        
-        # Skip regions too small or too large (may be bone shadow)
+
         if area < area_min or area > area_max:
             if debug:
                 print(f"Skipping contour with area {area} (not in range {area_min}-{area_max})")
             continue
-            
-        # Find Bounding Box to check ratio and position
+
         x_box, y_box, w_box, h_box = cv2.boundingRect(cnt)
         if h_box <= 0:
-            if debug:
-                print("Skipping contour with invalid bounding box height")
             continue
 
-        # Remove contours touching/overlapping the bottom ROI boundary
         contour_bottom = y_box + h_box
         if contour_bottom >= (roi_bottom - bottom_exclusion_margin):
             if debug:
@@ -196,93 +167,111 @@ def segment_baker_cyst(
 
         aspect_ratio = float(w_box) / h_box
 
-        # Shape compactness checks to reject irregular shapes (e.g., L-shape)
         perimeter = cv2.arcLength(cnt, True)
         if perimeter <= 0:
-            if debug:
-                print("Skipping contour with invalid perimeter")
             continue
 
         hull = cv2.convexHull(cnt)
         hull_area = cv2.contourArea(hull)
         if hull_area <= 0:
-            if debug:
-                print("Skipping contour with invalid convex hull area")
             continue
 
         solidity = area / hull_area
         extent = area / float(w_box * h_box)
         circularity = (4.0 * np.pi * area) / (perimeter * perimeter)
-        
-        # Baker's cyst in Post-Trans view usually has flattened oval shape
-        # Width/height ratio typically > 1.0 (avoid confusion with round artery)
+
         if (
             aspect_ratio_min < aspect_ratio < aspect_ratio_max
             and solidity >= solidity_min
             and extent >= extent_min
             and circularity >= circularity_min
         ):
-            # Compute centering score: prefer contours nearer to image center
             cx, cy = get_centroid(cnt)
 
-            # Use ROI center as reference for centering preference (not full image center)
             roi_cx = (roi_left + roi_right) / 2.0
             roi_cy = (roi_top + roi_bottom) / 2.0
 
             dist = math.hypot(cx - roi_cx, cy - roi_cy)
-            # max possible distance inside ROI (to furthest corner)
-            max_dist = math.hypot(max(roi_cx - roi_left, roi_right - roi_cx), max(roi_cy - roi_top, roi_bottom - roi_cy))
-            # fallback to image center radius if ROI degenerate
+            max_dist = math.hypot(
+                max(roi_cx - roi_left, roi_right - roi_cx),
+                max(roi_cy - roi_top, roi_bottom - roi_cy),
+            )
             if max_dist <= 0:
-                img_cx = w / 2.0
-                img_cy = h / 2.0
-                max_dist = math.hypot(img_cx, img_cy)
+                max_dist = math.hypot(w / 2.0, h / 2.0)
 
-            # Normalize distance into a score [0,1] where 1 means perfectly centered in ROI
             distance_score = 1.0 - (dist / (max_dist + 1e-9))
             distance_score = max(0.0, min(1.0, distance_score))
 
-            if debug:
-                print(
-                    f"Contour metrics: Area={area}, AR={aspect_ratio:.2f}, "
-                    f"Solidity={solidity:.2f}, Extent={extent:.2f}, Circ={circularity:.2f}"
-                )
-                print(
-                    f"Distance score: {distance_score:.3f} (dist={dist:.1f}, max_dist={max_dist:.1f}), "
-                    f"Centroid: ({cx:.1f}, {cy:.1f})"
-                )
-
-            # Normalize area into [0,1] based on area_min/area_max bounds
             area_score = (area - area_min) / float(max(1, area_max - area_min))
             area_score = max(0.0, min(1.0, area_score))
 
-            # Prefer contours in the upper half of the image: add small bonus
             half_bonus = upper_half_bonus if cy < (h / 2.0) else 0.0
-            if debug and half_bonus > 0:
-                print(f"Upper-half bonus applied: {half_bonus:.3f} (cy={cy:.1f}, h/2={h/2.0:.1f})")
 
-            # Combined score mixes area and centering preference, plus optional upper-half bonus
             combined_score = (1.0 - center_weight) * area_score + center_weight * distance_score + half_bonus
 
-            # Select contour by combined score; keep max_score as area for downstream display
+            if debug:
+                print(
+                    f"Candidate: Area={area}, AR={aspect_ratio:.2f}, "
+                    f"Solidity={solidity:.2f}, Extent={extent:.2f}, Circ={circularity:.2f}, "
+                    f"Score={combined_score:.3f}"
+                )
+
             if combined_score > best_score:
-                # New best contour found by score
                 best_score = combined_score
                 max_score = area
                 best_cnt = cnt
-            elif best_cnt is not None and combined_score == best_score:
-                # Tiebreaker: prefer upper-half contour when scores are equal
-                _, best_cy = get_centroid(best_cnt)
-                if cy < (h / 2.0) and best_cy >= (h / 2.0):
-                    best_cnt = cnt
 
-    # 7. Draw Output Mask
+    # === Stage 2: Refine — expand detected region with permissive threshold ===
     cyst_found = best_cnt is not None
     if cyst_found:
-        # Draw selected contour as solid white region (thickness=-1) on black background
-        cv2.drawContours(final_mask, [best_cnt], -1, 255, thickness=-1)
+        # Get bounding box of detected contour and expand it
+        x_box, y_box, w_box, h_box = cv2.boundingRect(best_cnt)
+        pad_x = int(w_box * 0.5)
+        pad_y = int(h_box * 0.5)
+        local_x1 = max(x_box - pad_x, 0)
+        local_y1 = max(y_box - pad_y, 0)
+        local_x2 = min(x_box + w_box + pad_x, w)
+        local_y2 = min(y_box + h_box + pad_y, h)
+
+        # Apply permissive threshold in the local region
+        t_refine = max(t_otsu + refine_offset, 1)
+        _, thresh_refine = cv2.threshold(blurred, t_refine, 255, cv2.THRESH_BINARY_INV)
+
+        # Restrict to local bounding box
+        local_mask = np.zeros_like(img)
+        local_mask[local_y1:local_y2, local_x1:local_x2] = 255
+        thresh_local = cv2.bitwise_and(thresh_refine, thresh_refine, mask=local_mask)
+        thresh_local = cv2.bitwise_and(thresh_local, thresh_local, mask=roi_mask)
+
+        # Light morphology to clean up noise in the local region
+        morph_local = cv2.morphologyEx(thresh_local, cv2.MORPH_OPEN, kernel, iterations=1)
+        morph_local = cv2.morphologyEx(morph_local, cv2.MORPH_CLOSE, kernel, iterations=1)
+
+        # Find contours in the local refined region and keep those overlapping
+        # the originally detected contour
+        seed_mask = np.zeros_like(img)
+        cv2.drawContours(seed_mask, [best_cnt], -1, 255, thickness=-1)
         if debug:
-            print("Baker's cyst found!")
+            cv2.imwrite("logs/5seed_mask.png", seed_mask)
+            cv2.imwrite("logs/6thresh_local.png", thresh_local)
+            cv2.imwrite("logs/7morph_local.png", morph_local)
+
+        local_contours, _ = cv2.findContours(morph_local, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        for lc in local_contours:
+            lc_mask = np.zeros_like(img)
+            cv2.drawContours(lc_mask, [lc], -1, 255, thickness=-1)
+            overlap = cv2.bitwise_and(lc_mask, seed_mask)
+            if overlap.any():
+                cv2.drawContours(final_mask, [lc], -1, 255, thickness=-1)
+
+        # If refinement produced nothing (edge case), fall back to the seed contour
+        if not final_mask.any():
+            cv2.drawContours(final_mask, [best_cnt], -1, 255, thickness=-1)
+
+        if debug:
+            cv2.imwrite("logs/8final_mask.png", final_mask)
+            print(f"Baker's cyst found! Seed area={max_score}, refined area={final_mask.sum()//255}")
     else:
         if debug:
             print("No Baker's cyst found meeting criteria.")
