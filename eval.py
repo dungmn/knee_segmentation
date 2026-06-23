@@ -68,7 +68,7 @@ def load_model(weights_path, model_name, num_classes, device):
         model = build_deeplabv3plus(num_classes, model_name=model_name).to(device)
     elif model_name.startswith("deeplabv3"):
         model = build_deeplabv3(num_classes, model_name=model_name).to(device)
-    elif model_name.startswith("Unet"):
+    elif model_name.lower().startswith("unet"):
         encoder = model_name.split("_", 1)[1] if "_" in model_name else "resnet34"
         model = build_unet(num_classes=num_classes, encoder_name=encoder).to(device)
     else:
